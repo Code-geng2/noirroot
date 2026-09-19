@@ -19,7 +19,7 @@ Unauthorized scanning may be illegal in your jurisdiction.
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/noirroot.git
+git clone https://github.com/Code-geng2/noirroot.git
 cd noirroot
 pip install -r requirements.txt
 ```
@@ -27,8 +27,9 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python noirroot.py yourdomain.com
+python noirroot.py codegengtech.com
 ```
+
 
 ## Install as a system command (Termux/Kali)
 
@@ -37,8 +38,7 @@ chmod +x noirroot.py
 cp noirroot.py $PREFIX/bin/noirroot      # Termux
 # or: sudo cp noirroot.py /usr/local/bin/noirroot   # Kali
 
-noirroot yourdomain.com
+noirroot codegengtech.com
 ```
-
 ## License
 Built by CODE GENG (@codegengtech).
