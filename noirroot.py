@@ -105,13 +105,30 @@ SQLI_PAYLOADS = ["'", "\"", "' OR '1'='1", "1' AND '1'='1", "1;--"]
 
 def check_subdomains(domain):
     print(f"\n{Fore.YELLOW}[*] Enumerating common subdomains for {domain}...{Style.RESET_ALL}")
+
+    # Wildcard DNS detection: resolve a random subdomain that almost
+    # certainly doesn't exist. If it resolves anyway, this domain uses
+    # wildcard DNS (common on Vercel/Netlify/CDN platforms) and any
+    # "found" result below is meaningless noise, not a real subdomain.
+    probe = f"noirroot-wildcard-check-{socket.gethostname()}-xyz123"
+    wildcard_ip = None
+    try:
+        wildcard_ip = socket.gethostbyname(f"{probe}.{domain}")
+    except socket.gaierror:
+        pass
+
+    if wildcard_ip:
+        print(f"{Fore.YELLOW}  [INFO] Wildcard DNS detected (random subdomain resolved to {wildcard_ip}).{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}  Subdomain results below are NOT reliable — this platform (e.g. Vercel/Netlify) "
+              f"accepts any subdomain by design.{Style.RESET_ALL}")
+
     found = []
 
     def try_sub(sub):
         fqdn = f"{sub}.{domain}"
         try:
-            socket.gethostbyname(fqdn)
-            return fqdn
+            ip = socket.gethostbyname(fqdn)
+            return (fqdn, ip)
         except socket.gaierror:
             return None
 
@@ -119,16 +136,40 @@ def check_subdomains(domain):
         results = ex.map(try_sub, COMMON_SUBDOMAINS)
         for r in results:
             if r:
-                print(f"{Fore.GREEN}  [FOUND] {r}{Style.RESET_ALL}")
-                found.append(r)
+                fqdn, ip = r
+                if wildcard_ip and ip == wildcard_ip:
+                    continue  # skip noise that just matches the wildcard
+                print(f"{Fore.GREEN}  [FOUND] {fqdn} -> {ip}{Style.RESET_ALL}")
+                found.append(fqdn)
 
-    if not found:
+    if not found and not wildcard_ip:
         print(f"{Fore.RED}  No common subdomains resolved.{Style.RESET_ALL}")
+    elif not found and wildcard_ip:
+        print(f"{Fore.GREEN}  No subdomains found that differ from the wildcard response (no real hits).{Style.RESET_ALL}")
     return found
 
 
 def check_directories(base_url):
     print(f"\n{Fore.YELLOW}[*] Probing common paths on {base_url}...{Style.RESET_ALL}")
+
+    # Baseline check: request a path that almost certainly doesn't exist.
+    # SPA frameworks (Next.js, React Router, etc.) often redirect or
+    # serve the same catch-all page for ANY unknown path instead of a
+    # real 404. If every candidate path below matches this baseline
+    # (same status + same body length), it's not a real finding.
+    baseline_path = "noirroot-baseline-check-xyz123-notreal"
+    baseline_status, baseline_len = None, None
+    try:
+        b = requests.get(urljoin(base_url + "/", baseline_path), timeout=6, allow_redirects=False)
+        baseline_status = b.status_code
+        baseline_len = len(b.content)
+    except requests.RequestException:
+        pass
+
+    if baseline_status is not None:
+        print(f"{Fore.YELLOW}  [INFO] Baseline (nonexistent path) returned {baseline_status}, "
+              f"{baseline_len} bytes. Matching results below are likely false positives.{Style.RESET_ALL}")
+
     found = []
 
     def try_dir(path):
@@ -136,7 +177,7 @@ def check_directories(base_url):
         try:
             r = requests.get(url, timeout=5, allow_redirects=False)
             if r.status_code in (200, 301, 302, 403):
-                return (path, r.status_code)
+                return (path, r.status_code, len(r.content))
         except requests.RequestException:
             pass
         return None
@@ -145,13 +186,20 @@ def check_directories(base_url):
         results = ex.map(try_dir, COMMON_DIRS)
         for r in results:
             if r:
-                path, code = r
+                path, code, length = r
+                is_baseline_match = (
+                    baseline_status is not None
+                    and code == baseline_status
+                    and length == baseline_len
+                )
+                if is_baseline_match:
+                    continue  # same as the "nothing here" response — skip
                 color = Fore.GREEN if code == 200 else Fore.YELLOW
                 print(f"{color}  [{code}] /{path}{Style.RESET_ALL}")
                 found.append((path, code))
 
     if not found:
-        print(f"{Fore.RED}  No common paths found accessible.{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}  No paths found that differ from the baseline (no real hits).{Style.RESET_ALL}")
     return found
 
 
